@@ -50,7 +50,7 @@ int main(int argc, char* argv[]) {
                 if (bytes_read == 0) {
                     printf("%s EOF\n", argv[arg_pair]);
                 } else {
-                    printf("%s", argv[arg_pair]);
+                    printf("%s: ", argv[arg_pair]);
                     for (int i = 0; i < bytes_read; i++) {
                         if (argv[arg_pair][0] == 'r') {
                             printf("%c", isprint((unsigned char) buffer[i]) ? buffer[i] : '?');
