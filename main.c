@@ -1,3 +1,6 @@
+#include <ctype.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -5,47 +8,82 @@
 #include <fcntl.h>
 
 #include "lib/error_functions.h"
-
-#ifndef BUF_SIZE
-#define BUF_SIZE 1024
-#endif
+#include "lib/get_num.h"
 
 int main(int argc, char* argv[]) {
-    char* input_name = argv[1];
-    char* output_name = argv[2];
-
-    if (argc != 3 || strcmp(input_name, "--help") == 0)
-        usage_err("%s old-file new-file\n", argv[0]);
-
-    int input_fd = open(input_name, O_RDONLY);
-    if (input_fd == -1)
-        err_exit("opening file %s", input_name);
-
-    int open_flags = O_CREAT | O_WRONLY | O_APPEND;
-    int file_perms = S_IRUSR | S_IWUSR |
-            S_IRGRP | S_IWGRP |
-            S_IROTH | S_IWOTH;
-
-    int output_fd = open(output_name, open_flags, file_perms);
-    if (output_fd == -1)
-        err_exit("opening file %s", output_name);
-
-    char buffer[BUF_SIZE];
-    ssize_t bytes_read;
-    while ((bytes_read = read(input_fd, buffer, BUF_SIZE)) > 0) {
-        if (write(output_fd, buffer, bytes_read) != bytes_read) {
-            fatal("couldn't write whole buffer");
-        }
+    if (argc < 3 || strcmp(argv[1], "--help") == 0) {
+        usage_err("%s file {r<len>|R<len>|w<str>|s<offset>}...\n", argv[0]);
     }
 
-    if (bytes_read == -1)
-        err_exit("read");
+    const char* file_name = argv[1];
+    int fd = open(
+        file_name,
+        O_RDWR | O_CREAT,
+        S_IRUSR | S_IWUSR |
+        S_IRGRP | S_IWGRP |
+        S_IROTH | S_IWOTH
+    );
 
-    if (close(input_fd) == -1)
-        err_exit("close input");
+    if (fd == -1) {
+        err_exit("opening file");
+    }
     
-    if (close(output_fd) == -1)
-        err_exit("close output");
-  
+    size_t len;
+    char* buffer;
+    int bytes_written;
+    int offset;
+    for (int arg_pair = 2; arg_pair < argc; arg_pair += 1) {
+        switch(argv[arg_pair][0]) {
+            case 'r':
+            case 'R':
+                len = get_long(&argv[arg_pair][1], GN_ANY_BASE, argv[arg_pair]); 
+                buffer = malloc(len);
+                if (buffer == NULL) {
+                    err_exit("malloc");
+                }
+
+                int bytes_read = read(fd, buffer, len);
+                if (bytes_read == -1) {
+                    err_exit("read");
+                }
+
+                if (bytes_read == 0) {
+                    printf("%s EOF\n", argv[arg_pair]);
+                } else {
+                    printf("%s", argv[arg_pair]);
+                    for (int i = 0; i < bytes_read; i++) {
+                        if (argv[arg_pair][0] == 'r') {
+                            printf("%c", isprint((unsigned char) buffer[i]) ? buffer[i] : '?');
+                        } else {
+                            printf("%02x ", (unsigned int) buffer[i]);
+                        }
+                    }
+                    printf("\n");
+                }
+
+                free(buffer);
+                break;
+            case 'w':
+                bytes_written = write(fd, &argv[arg_pair][1], strlen(&argv[arg_pair][1]));
+                if (bytes_written == -1) {
+                    err_exit("write");
+                }
+
+                printf("%s: wrote %ld bytes\n", argv[arg_pair], (long) bytes_written);
+                break;
+            case 's':
+                offset = get_long(&argv[arg_pair][1], GN_ANY_BASE, argv[arg_pair]);
+                if (lseek(fd, offset, SEEK_SET) == -1) {
+                    err_exit("lseek");
+                }
+
+                printf("%s: seek succeeded\n", argv[arg_pair]);
+                break;
+
+            default:
+                cmd_line_err("Argument must start with [rRws]: %s\n", argv[arg_pair]);
+        }
+    }
+    
     return 0;
 }
